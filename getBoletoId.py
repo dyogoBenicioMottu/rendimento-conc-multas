@@ -9,21 +9,30 @@ import os
 def get_project_root():
     return Path(__file__).resolve().parent
 
-def registrar_id_na_planilha(id_integracao: str):
+def registrar_id_na_planilha(id_integracao: str, nsu: str):
     nome_arquivo = 'Omie-nao-encontrado.xlsx'
-    caminho_completo =  get_project_root() / nome_arquivo
-    coluna = 'codigo integracao'
+    caminho_completo = get_project_root() / nome_arquivo
+    colunas = ['codigo integracao', 'nsu']
 
     if os.path.exists(caminho_completo):
         df = pd.read_excel(caminho_completo)
     else:
-        df = pd.DataFrame(columns=[coluna])
+        df = pd.DataFrame(columns=colunas)
 
-    if coluna not in df.columns:
-        df[coluna] = None
+    for coluna in colunas:
+        if coluna not in df.columns:
+            df[coluna] = None
 
-    if id_integracao not in df[coluna].astype(str).values:
-        novo_dado = pd.DataFrame({coluna: [id_integracao]})
+    ja_existe = (
+        (df['codigo integracao'].astype(str) == str(id_integracao)) &
+        (df['nsu'].astype(str) == str(nsu))
+    ).any()
+
+    if not ja_existe:
+        novo_dado = pd.DataFrame([{
+            'codigo integracao': id_integracao,
+            'nsu': nsu
+        }])
         df = pd.concat([df, novo_dado], ignore_index=True)
 
     df.to_excel(caminho_completo, index=False)
@@ -100,6 +109,7 @@ def atualizar_valores_omie(caminho_arquivo):
 
         for index, row in df.iterrows():
             idmottu = str(row['identificadorMottu']).strip()
+            nsu = str(row['NSU']).strip()
             cod_int = f"MULTA-{idmottu}-L"
 
             df.at[index, 'receiptReference'] = cod_int
@@ -139,7 +149,7 @@ def atualizar_valores_omie(caminho_arquivo):
                     
                     if error.get("faultstring") == "ERROR: Código do Título informado na tag [cCodIntTitulo] não cadastrado!":
                         print(f"Multa {idmottu} não cadastrada na Omie")
-                        registrar_id_na_planilha(idmottu)
+                        registrar_id_na_planilha(idmottu, nsu)
                         df.drop(index, inplace=True)
                         concluded = True
                         continue
@@ -211,6 +221,8 @@ def getBoletoId(date):
     dsn = 'BigQuery'
     connection_string = f'DSN={dsn};'
     connection = pyodbc.connect(connection_string, autocommit=True)
+    
+    print('Buscando multas no BQ...')
 
     sql_query = f"""
         SELECT
@@ -222,6 +234,8 @@ def getBoletoId(date):
         WHERE NSU IN ({nsu_values})
         AND ReciboPagamentoDataAutenticacao = '{date}' 
     """
+    
+    print(f'Query: \n {sql_query}')
         
     df = pd.read_sql(sql_query, connection)
 
